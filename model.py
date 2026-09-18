@@ -78,8 +78,8 @@ def project_game(home_team, away_team, form: pd.DataFrame, home_field=1.8):
 
     # Baseline league scoring assumption for first pass.
     league_team_pts = 22.5
-    home_pts = league_team_pts + home_off - away_def + home_field/2
-    away_pts = league_team_pts + away_off - home_def - home_field/2
+    home_pts = league_team_pts + home_off - away_def * 0.5 + home_field/2
+    away_pts = league_team_pts + away_off - home_def * 0.5 - home_field/2
 
     projected_margin = home_pts - away_pts
     projected_total = home_pts + away_pts
