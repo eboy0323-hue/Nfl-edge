@@ -1,113 +1,90 @@
+"""Transparent research baselines, not validated wagering probabilities."""
 import math
 import numpy as np
 import pandas as pd
 
-TEAM_MAP = {
-    "LA": "LAR",
-    "LV": "LV",
-    "WSH": "WAS",
-}
+def american_to_implied(odds):
+    odds=float(odds)
+    if odds == 0: raise ValueError('American odds cannot be zero')
+    return -odds/(100-odds) if odds < 0 else 100/(100+odds)
 
-def american_to_implied(odds: float) -> float:
-    odds = float(odds)
-    if odds < 0:
-        return (-odds) / ((-odds) + 100.0)
-    return 100.0 / (odds + 100.0)
+def expected_value_per_100(p, odds):
+    if not 0 <= p <= 1: raise ValueError('Probability outside [0,1]')
+    profit=100* (float(odds)/100 if odds>0 else 100/abs(float(odds)))
+    return p*profit-(1-p)*100
 
-def prob_to_american(p: float) -> int:
-    p = min(max(float(p), 1e-6), 1 - 1e-6)
-    if p >= 0.5:
-        return int(round(-100 * p / (1 - p)))
-    return int(round(100 * (1 - p) / p))
+def cdf(x): return .5*(1+math.erf(x/math.sqrt(2)))
 
-def expected_value_per_100(p_win: float, american_odds: float) -> float:
-    odds = float(american_odds)
-    if odds > 0:
-        profit = odds
-    else:
-        profit = 10000.0 / abs(odds)
-    return p_win * profit - (1 - p_win) * 100.0
+def completed_games(schedules, asof):
+    d=schedules.copy()
+    d['gameday']=pd.to_datetime(d['gameday'], errors='coerce')
+    return d[(d.gameday < pd.Timestamp(asof).normalize()) & d.home_score.notna() & d.away_score.notna()].copy()
 
-def normal_cdf(x):
-    return 0.5 * (1 + math.erf(x / math.sqrt(2)))
-
-def build_team_form(schedule: pd.DataFrame, season: int, decay: float = 0.82) -> pd.DataFrame:
-    df = schedule.copy()
-    df = df[pd.to_datetime(df["gameday"]) < pd.Timestamp.now().normalize()]
-    df = df[(df["season"] == season) & df["home_score"].notna() & df["away_score"].notna()].copy()
-    if df.empty:
-        return pd.DataFrame(columns=["team","off_rating","def_rating","net_rating","avg_total","games"])
-
-    rows = []
-    for _, g in df.sort_values(["week"]).iterrows():
-        rows.append({"team":g.home_team,"week":g.week,"pf":g.home_score,"pa":g.away_score})
-        rows.append({"team":g.away_team,"week":g.week,"pf":g.away_score,"pa":g.home_score})
-
-    x = pd.DataFrame(rows).sort_values(["team","week"])
-    out = []
-    league_pf = x["pf"].mean()
-
-    for team, t in x.groupby("team"):
-        t = t.sort_values("week").copy()
-        n = len(t)
-        weights = np.array([decay ** (n-1-i) for i in range(n)], dtype=float)
-        weights /= weights.sum()
-        pf = np.average(t["pf"], weights=weights)
-        pa = np.average(t["pa"], weights=weights)
-        out.append({
-            "team": team,
-            "off_rating": pf - league_pf,
-            "def_rating": league_pf - pa,
-            "net_rating": pf - pa,
-            "avg_total": np.average(t["pf"] + t["pa"], weights=weights),
-            "games": n,
-        })
+def build_team_form(schedules, season, asof=None, decay=.82, prior_games=6):
+    """Prior-season information is strongly shrunk; current season added as it arrives."""
+    if asof is None: asof=pd.Timestamp.now(tz='America/New_York').date()
+    d=completed_games(schedules, asof)
+    d=d[d.season.isin([season-1,season])].sort_values(['gameday','week'])
+    if d.empty: return pd.DataFrame(columns=['team','off_rating','def_rating','games','prior_games'])
+    rows=[]
+    for g in d.itertuples():
+        rows.extend([(g.home_team,g.season,g.home_score,g.away_score,g.gameday),
+                     (g.away_team,g.season,g.away_score,g.home_score,g.gameday)])
+    x=pd.DataFrame(rows,columns=['team','season','pf','pa','date'])
+    league=float(x.pf.mean())
+    out=[]
+    for team,t in x.groupby('team'):
+        prev=t[t.season==season-1].sort_values('date').tail(8)
+        cur=t[t.season==season].sort_values('date')
+        # Prior season is a small, decayed prior, not eight full-weight games.
+        prior_off=float(prev.pf.mean()-league) if len(prev) else 0.
+        prior_def=float(league-prev.pa.mean()) if len(prev) else 0.
+        n=len(cur)
+        w=np.array([decay**(n-1-i) for i in range(n)]) if n else np.array([])
+        effective=float(w.sum())
+        denom=prior_games+effective
+        off=(prior_games*.35*prior_off+float(np.dot(w,cur.pf-league)))/denom
+        defense=(prior_games*.35*prior_def+float(np.dot(w,league-cur.pa)))/denom
+        out.append(dict(team=team,off_rating=off,def_rating=defense,games=n,prior_games=len(prev)))
     return pd.DataFrame(out)
 
-def project_game(home_team, away_team, form: pd.DataFrame, home_field=1.8):
-    f = form.set_index("team") if not form.empty else pd.DataFrame()
-    def get(team, col, default=0.0):
-        try:
-            return float(f.loc[team, col])
-        except Exception:
-            return default
+def project_game(home_team,away_team,form,home_field=1.5,league_points=22.5):
+    f=form.set_index('team') if not form.empty else pd.DataFrame()
+    def val(team,col): return float(f.loc[team,col]) if team in f.index else 0.
+    # Defensive rating is positive for stingy defenses: subtract it, never double-count it.
+    hp=league_points+val(home_team,'off_rating')-val(away_team,'def_rating')+home_field/2
+    ap=league_points+val(away_team,'off_rating')-val(home_team,'def_rating')-home_field/2
+    hp=max(7.,min(42.,hp));ap=max(7.,min(42.,ap))
+    margin=hp-ap; total=hp+ap
+    return dict(home_points=hp,away_points=ap,projected_margin=margin,projected_total=total,
+                home_win_prob=cdf(margin/13.4),margin_sd=13.4,total_sd=13.)
 
-    home_off = get(home_team, "off_rating")
-    home_def = get(home_team, "def_rating")
-    away_off = get(away_team, "off_rating")
-    away_def = get(away_team, "def_rating")
+def spread_cover_prob(margin,home_spread,sd=13.4): return cdf((margin+home_spread)/sd)
+def over_prob(total,line,sd=13.): return cdf((total-line)/sd)
 
-    # Baseline league scoring assumption for first pass.
-    league_team_pts = 22.5
-    home_pts = league_team_pts + home_off - away_def * 0.5 + home_field/2
-    away_pts = league_team_pts + away_off - home_def * 0.5 - home_field/2
+def player_projection(stats, player, metric, season, asof, recent=6):
+    """Descriptive rolling mean/SD; normal approximation is uncalibrated."""
+    d=stats.copy()
+    if metric not in d.columns: raise ValueError('Stat not available in source')
+    d=d[(d.player_display_name==player)&(d.season==season)&(d[metric].notna())]
+    if 'week' in d.columns: d=d.sort_values('week')
+    if 'game_date' in d.columns:
+        dates=pd.to_datetime(d.game_date,errors='coerce');d=d[dates<pd.Timestamp(asof)]
+    elif 'week' in d.columns:
+        # Caller must supply completed week bound when player stats lack dates.
+        raise ValueError('Player stats lack game dates; cannot prevent future-data leakage safely.')
+    d=d.tail(recent)
+    if len(d)<3: return None
+    a=d[metric].astype(float).to_numpy()
+    return dict(mean=float(a.mean()),sd=max(float(a.std(ddof=1)),max(1.,float(a.mean())*.25)),games=len(a))
 
-    projected_margin = home_pts - away_pts
-    projected_total = home_pts + away_pts
-
-    # Empirical NFL-ish residual scales as a V1 baseline.
-    margin_sd = 13.4
-    total_sd = 13.0
-
-    home_win_p = normal_cdf(projected_margin / margin_sd)
-    return {
-        "home_points": round(home_pts, 1),
-        "away_points": round(away_pts, 1),
-        "projected_margin": round(projected_margin, 2),
-        "projected_total": round(projected_total, 2),
-        "home_win_prob": home_win_p,
-        "home_fair_ml": prob_to_american(home_win_p),
-        "away_fair_ml": prob_to_american(1-home_win_p),
-        "margin_sd": margin_sd,
-        "total_sd": total_sd,
-    }
-
-def spread_cover_prob(projected_margin: float, home_spread: float, margin_sd=13.4):
-    # home covers when actual margin + home_spread > 0
-    threshold = -float(home_spread)
-    z = (projected_margin - threshold) / margin_sd
-    return normal_cdf(z)
-
-def over_prob(projected_total: float, market_total: float, total_sd=13.0):
-    z = (projected_total - market_total) / total_sd
-    return normal_cdf(z)
+def first_td_proxy(stats,team,season,completed_week):
+    """Uncalibrated relative TD shares, NOT first-TD probabilities or odds."""
+    d=stats[(stats.season==season)&(stats.recent_team==team)&(stats.week<=completed_week)].copy()
+    tdcols=[c for c in ['rushing_tds','receiving_tds'] if c in d.columns]
+    if not tdcols: return pd.DataFrame()
+    d['td']=d[tdcols].fillna(0).sum(axis=1)
+    agg=d.groupby('player_display_name',as_index=False).agg(td=('td','sum'),games=('week','nunique'))
+    agg=agg[agg.games>=1].copy()
+    agg['relative_td_share']=(agg.td+.25)/(agg.td.sum()+.25*len(agg))
+    return agg.sort_values('relative_td_share',ascending=False)

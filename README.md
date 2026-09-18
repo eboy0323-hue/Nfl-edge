@@ -1,44 +1,9 @@
-# NFL EDGE V1
+# NFL EDGE V2 — experimental research preview
 
-A free-data NFL betting dashboard focused on Fanatics Sportsbook.
+Deploy on Streamlit Community Cloud using `app.py` and the included `requirements.txt`.
 
-## What V1 does
-- Pulls free NFL schedule/team/player data from nflverse through `nflreadpy`
-- Builds rolling team power features
-- Produces baseline projections for:
-  - spread
-  - total
-  - moneyline
-- Lets you enter Fanatics prices manually in the dashboard
-- Calculates:
-  - model edge
-  - implied probability
-  - fair odds
-  - expected value
-  - bet/no-bet signal
-- Includes placeholders for:
-  - player props
-  - first touchdown
-  - same-game parlays
-- Stores a bet log so the model can be evaluated over time
+Changes from V1: excludes games on/after current local date from form calculations; includes previous-season prior with strong shrinkage; corrects defensive sign and removes prior ad-hoc 0.5 defensive patch; expands matchup selection to 64 games; removes misleading BET SIGNAL labels; first-TD tab now shows *descriptive TD shares only*, explicitly not first-TD probabilities. Props remain raw stats; SGP remains unavailable. Paper log is session-only, export manually.
 
-## Install
-1. Install Python 3.11+
-2. Open a terminal in this folder
-3. Run:
-   `pip install -r requirements.txt`
-4. Start:
-   `streamlit run app.py`
+IMPORTANT: The original V1 GitHub edits were reconstructed from the user's confirmation, not downloaded from their live repository. The V1 0.5 defensive multiplier is deliberately superseded by a coherent formula, not silently copied. There is no verified Fanatics odds feed, live-game model, first-TD predictor, prop predictor, calibration, or backtest. Do not wager using this model. Current-day games remain visible for selection, but their projections are pregame snapshots, NOT in-play projections. Data cache refreshes hourly. Timezone in this preview uses fixed UTC-4 and should be replaced with zoneinfo America/New_York before winter.
 
-## Important
-This is a research/betting-assistance model, not a guarantee of profit.
-V1 deliberately avoids scraping Fanatics. Enter Fanatics lines manually in the dashboard.
-
-## V2 roadmap
-- walk-forward historical backtest
-- calibrated cover/over probabilities
-- player opportunity + usage models
-- anytime/first-TD hazard model
-- correlation-aware SGP simulator
-- CLV tracker
-- automatic weekly report export
+To update GitHub on iPhone, upload all V2 files to repository root, replacing files with the same names. Streamlit will redeploy. Keep a backup of V1 first.
