@@ -34,7 +34,7 @@ form = build_team_form(schedules, season)
 
 future = schedules[
     (schedules["season"] == season) &
-    (pd.to_datetime(schedules["gameday"]) >= today)
+    (pd.to_datetime(schedules["gameday"]) >= today - pd.Timedelta(days=1))
 ].copy().sort_values(["gameday","gametime"])
 
 if future.empty:
