@@ -33,6 +33,7 @@ def normal_cdf(x):
 
 def build_team_form(schedule: pd.DataFrame, season: int, decay: float = 0.82) -> pd.DataFrame:
     df = schedule.copy()
+df = df[pd.to_datetime(df["gameday"]) < pd.Timestamp.now().normalize()]
     df = df[(df["season"] == season) & df["home_score"].notna() & df["away_score"].notna()].copy()
     if df.empty:
         return pd.DataFrame(columns=["team","off_rating","def_rating","net_rating","avg_total","games"])
