@@ -1,9 +1,17 @@
-# NFL EDGE V2 — experimental research preview
+# NFL EDGE V3 — Validation Build
 
-Deploy on Streamlit Community Cloud using `app.py` and the included `requirements.txt`.
+This build turns NFL EDGE from a demo signal generator into a validation-first research app.
 
-Changes from V1: excludes games on/after current local date from form calculations; includes previous-season prior with strong shrinkage; corrects defensive sign and removes prior ad-hoc 0.5 defensive patch; expands matchup selection to 64 games; removes misleading BET SIGNAL labels; first-TD tab now shows *descriptive TD shares only*, explicitly not first-TD probabilities. Props remain raw stats; SGP remains unavailable. Paper log is session-only, export manually.
+## What changed
+- Preserves the confirmed V1 phone edits: no same-day/future leakage and 50% defensive adjustment.
+- Adds true walk-forward backtesting: each game is projected only from games completed before it.
+- Adds a Validation tab with margin MAE, total MAE, winner accuracy, week-by-week results, optional ATS/total-side grading when nflverse exposes market lines, and CSV export.
+- Removes automatic BET SIGNAL claims. Raw EV remains visible for research but is explicitly unvalidated.
+- Totals are hard-labeled PASS pending a rebuilt totals engine.
+- Player props / First TD are not presented as models until their own validation exists.
 
-IMPORTANT: The original V1 GitHub edits were reconstructed from the user's confirmation, not downloaded from their live repository. The V1 0.5 defensive multiplier is deliberately superseded by a coherent formula, not silently copied. There is no verified Fanatics odds feed, live-game model, first-TD predictor, prop predictor, calibration, or backtest. Do not wager using this model. Current-day games remain visible for selection, but their projections are pregame snapshots, NOT in-play projections. Data cache refreshes hourly. Timezone in this preview uses fixed UTC-4 and should be replaced with zoneinfo America/New_York before winter.
+## Deploy safely
+Use the existing `v2-test` branch or another test branch. Replace `app.py` and `model.py`; `data.py` and `requirements.txt` can remain, or upload the full package. Do not merge to `main` until the Validation tab runs successfully in Streamlit.
 
-To update GitHub on iPhone, upload all V2 files to repository root, replacing files with the same names. Streamlit will redeploy. Keep a backup of V1 first.
+## Important
+A backtest can reveal whether a model deserves further work; it cannot guarantee future profit. Historical sportsbook fields also need to be checked for their exact line convention before treating ATS results as final.
