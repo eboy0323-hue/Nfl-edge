@@ -56,8 +56,24 @@ with t3:
     st.subheader("Player data foundation")
     st.write("Props and First TD remain disabled until a separate player-usage model is validated.")
     if not player_stats.empty:
-        cs=[c for c in ['player_display_name','recent_team','week','passing_yards','rushing_yards','receiving_yards','targets','carries'] if c in player_stats.columns]
-        if cs: st.dataframe(player_stats[player_stats.season==season][cs].tail(100),use_container_width=True)
+        # nflverse player-stat schemas can change. Normalize the team field and
+        # use reindex so a missing optional column can never crash the app.
+        ps = player_stats.copy()
+        if "recent_team" not in ps.columns:
+            for alt in ("team", "team_abbr", "club"): 
+                if alt in ps.columns:
+                    ps["recent_team"] = ps[alt]
+                    break
+        wanted = ["player_display_name", "recent_team", "week", "passing_yards",
+                  "rushing_yards", "receiving_yards", "targets", "carries"]
+        if "season" in ps.columns:
+            ps = ps[pd.to_numeric(ps["season"], errors="coerce") == season]
+        available = [c for c in wanted if c in ps.columns]
+        if available:
+            st.dataframe(ps.reindex(columns=available).tail(100),
+                         use_container_width=True, hide_index=True)
+        else:
+            st.info("Player feed loaded, but none of the display fields are available right now. Game Model and Validation remain available.")
 with t4:
     st.subheader("V3 gates")
     st.markdown("**Spread/ML:** preserve V1 rolling team-strength engine, measure walk-forward error and ATS behavior, then calibrate probabilities on historical seasons.\n\n**Totals:** current engine stays PASS until rebuilt and validated.\n\n**Props / First TD:** require player-level usage + opponent + game-script models.\n\n**SGP:** requires joint simulation after individual legs are calibrated.\n\n**Fanatics:** manual verified price entry remains mandatory; the app never invents a Fanatics price.")
